@@ -90,6 +90,12 @@ class YouTubeDownloader:
             'noplaylist': True,
             'geo_bypass': True,
             'geo_bypass_country': 'US',
+            # Force web player client to avoid iOS/tv clients that may require PO tokens
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['web']
+                }
+            },
             'user_agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                 'AppleWebKit/537.36 (KHTML, like Gecko) '

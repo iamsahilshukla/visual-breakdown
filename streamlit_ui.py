@@ -199,8 +199,14 @@ def display_individual_videos(results):
                     st.write(f"• **{timestamp:.1f}s:** {description[:200]}{'...' if len(description) > 200 else ''}")
 
 
-async def run_analysis(urls, duration, max_frames, max_videos, batch_size, api_key, output_dir):
+async def run_analysis(urls, duration, max_frames, max_videos, batch_size, api_key, output_dir, yt_cookies_text: str | None = None):
     """Run the batch analysis."""
+    # Apply cookies for this run if provided
+    if yt_cookies_text and yt_cookies_text.strip():
+        os.environ['YT_DLP_COOKIES'] = yt_cookies_text
+    else:
+        # Ensure previous session cookies don't leak into this run
+        os.environ.pop('YT_DLP_COOKIES', None)
     processor = BatchVideoProcessor(
         api_key=api_key,
         output_dir=output_dir
@@ -255,6 +261,19 @@ def main():
                 st.warning("Please enter an API key")
         
         st.divider()
+
+        # Optional cookies input for gated content / anti-bot challenges
+        st.subheader("🍪 YouTube Cookies (optional)")
+        cookies_help = (
+            "Paste Netscape-format cookies for .youtube.com here if some URLs fail with 'sign in to confirm you're not a bot'. "
+            "We do not store cookies; they are used only for this run."
+        )
+        yt_cookies_text = st.text_area(
+            "Cookies.txt content",
+            value="",
+            height=140,
+            help=cookies_help
+        )
         
         # Processing Settings
         st.subheader("🎛️ Processing Settings")
@@ -407,7 +426,7 @@ def main():
                         result = run_with_progress(
                             run_analysis,
                             None,  # progress_callback
-                            valid_urls, duration, max_frames, max_videos, batch_size, api_key, output_dir
+                            valid_urls, duration, max_frames, max_videos, batch_size, api_key, output_dir, yt_cookies_text
                         )
                         
                         if result:
