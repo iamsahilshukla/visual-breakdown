@@ -1,0 +1,50 @@
+# OS
+.DS_Store
+
+# Environments
+venv/
+.env
+.env.*
+.env.local
+.python-version
+
+# Editors/IDE
+.vscode/
+.idea/
+
+# Python caches & artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project outputs & large artifacts
+outputs/
+batch_outputs/
+demo_outputs/
+streamlit_outputs/
+Final.mp4
+korea.mp4
+
+# Temporary files
+*.tmp
+*.swp

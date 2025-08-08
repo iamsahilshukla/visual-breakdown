@@ -1,0 +1,10 @@
+opencv-python==4.8.1.78
+openai>=1.52.0
+python-dotenv==1.0.0
+numpy<2.0.0
+aiohttp>=3.8.0
+yt-dlp>=2023.1.6
+tqdm>=4.64.0
+streamlit>=1.28.0
+plotly>=5.15.0
+pandas>=2.0.0 

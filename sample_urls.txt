@@ -1,0 +1,8 @@
+# Sample YouTube URLs for testing
+# Replace these with actual YouTube URLs you want to analyze
+
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://youtu.be/9bZkp7q19f0
+
+# Add more URLs here (max 10 will be processed)
+# Lines starting with # are ignored
