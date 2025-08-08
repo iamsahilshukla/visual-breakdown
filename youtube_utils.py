@@ -29,6 +29,100 @@ class YouTubeDownloader:
         self.temp_dir = temp_dir or tempfile.gettempdir()
         self.downloads_dir = os.path.join(self.temp_dir, "youtube_downloads")
         os.makedirs(self.downloads_dir, exist_ok=True)
+
+        # Optional cookies support for age/region-gated videos
+        # Either provide a file path via YT_DLP_COOKIEFILE, or raw Netscape cookies text via YT_DLP_COOKIES
+        self.cookiefile: Optional[str] = None
+        cookiefile_env = os.getenv("YT_DLP_COOKIEFILE")
+        cookies_inline_env = os.getenv("YT_DLP_COOKIES")
+        if cookiefile_env and os.path.exists(cookiefile_env):
+            self.cookiefile = cookiefile_env
+        elif cookies_inline_env:
+            # Persist inline cookies into a temp file
+            cookie_path = os.path.join(self.temp_dir, "yt_cookies.txt")
+            with open(cookie_path, "w", encoding="utf-8") as f:
+                f.write(cookies_inline_env)
+            self.cookiefile = cookie_path
+
+    # ----------------------
+    # URL utilities
+    # ----------------------
+    @staticmethod
+    def extract_video_id(url: str) -> Optional[str]:
+        """Extract YouTube video id from various URL formats including Shorts."""
+        # Try standard watch
+        m = re.search(r"[?&]v=([\w-]{6,})", url)
+        if m:
+            return m.group(1)
+        # Short youtu.be
+        m = re.search(r"youtu\.be/([\w-]{6,})", url)
+        if m:
+            return m.group(1)
+        # Shorts
+        m = re.search(r"/shorts/([\w-]{6,})", url)
+        if m:
+            return m.group(1)
+        # Embed
+        m = re.search(r"/embed/([\w-]{6,})", url)
+        if m:
+            return m.group(1)
+        # Legacy /v/
+        m = re.search(r"/v/([\w-]{6,})", url)
+        if m:
+            return m.group(1)
+        return None
+
+    @classmethod
+    def normalize_to_watch_url(cls, url: str) -> str:
+        """Normalize any supported YouTube URL to a watch?v= form.
+        This helps avoid occasional Shorts-specific access issues on headless hosts.
+        """
+        vid = cls.extract_video_id(url)
+        return f"https://www.youtube.com/watch?v={vid}" if vid else url
+
+    # ----------------------
+    # yt-dlp options builder
+    # ----------------------
+    def _build_yt_dlp_opts(self, outtmpl: Optional[str] = None, duration_seconds: Optional[int] = None) -> Dict:
+        opts: Dict = {
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            'geo_bypass': True,
+            'geo_bypass_country': 'US',
+            'user_agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/126.0.0.0 Safari/537.36'
+            ),
+            'http_headers': {
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/126.0.0.0 Safari/537.36'
+                ),
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.youtube.com/'
+            },
+            # Prefer mp4
+            'format': 'best[ext=mp4]/best',
+        }
+
+        if self.cookiefile:
+            opts['cookiefile'] = self.cookiefile
+
+        if outtmpl:
+            opts['outtmpl'] = outtmpl
+
+        if duration_seconds and duration_seconds > 0:
+            # Limit duration via ffmpeg postprocessor
+            opts['postprocessor_args'] = ['-t', str(duration_seconds)]
+            opts['postprocessors'] = [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }]
+
+        return opts
     
     def is_valid_youtube_url(self, url: str) -> bool:
         """
@@ -81,26 +175,31 @@ class YouTubeDownloader:
         Returns:
             Optional[Dict]: Video info dict or None if failed
         """
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-        }
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                return {
-                    'id': info.get('id'),
-                    'title': info.get('title'),
-                    'duration': info.get('duration'),
-                    'uploader': info.get('uploader'),
-                    'view_count': info.get('view_count'),
-                    'upload_date': info.get('upload_date'),
-                    'url': url
-                }
-        except Exception as e:
-            print(f"Error getting info for {url}: {e}")
-            return None
+        # Try original URL first
+        try_urls = [url]
+        # Add normalized watch URL as fallback (helps for Shorts)
+        normalized = self.normalize_to_watch_url(url)
+        if normalized != url:
+            try_urls.append(normalized)
+
+        for attempt_url in try_urls:
+            try:
+                with yt_dlp.YoutubeDL(self._build_yt_dlp_opts()) as ydl:
+                    info = ydl.extract_info(attempt_url, download=False)
+                    return {
+                        'id': info.get('id'),
+                        'title': info.get('title'),
+                        'duration': info.get('duration'),
+                        'uploader': info.get('uploader'),
+                        'view_count': info.get('view_count'),
+                        'upload_date': info.get('upload_date'),
+                        'url': attempt_url
+                    }
+            except Exception as e:
+                print(f"Error getting info for {attempt_url}: {e}")
+                continue
+
+        return None
     
     def download_video(self, url: str, duration_seconds: int = 20) -> Optional[str]:
         """
@@ -124,28 +223,14 @@ class YouTubeDownloader:
         output_path = os.path.join(self.downloads_dir, output_filename)
         
         # Configure yt-dlp options
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best',  # Prefer mp4 format
-            'outtmpl': output_path,
-            'quiet': False,
-            'no_warnings': False,
-        }
-        
-        # Add duration limiting if specified
-        if duration_seconds > 0:
-            # Use ffmpeg to limit duration during download
-            ydl_opts['postprocessor_args'] = [
-                '-t', str(duration_seconds)  # Limit to first N seconds
-            ]
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }]
+        ydl_opts = self._build_yt_dlp_opts(outtmpl=output_path, duration_seconds=duration_seconds)
         
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 print(f"Downloading: {info['title']} (first {duration_seconds}s)")
-                ydl.download([url])
+                # Always prefer normalized watch URL for actual download
+                normalized_download_url = self.normalize_to_watch_url(url)
+                ydl.download([normalized_download_url])
                 
                 # Find the downloaded file
                 for file in os.listdir(self.downloads_dir):
